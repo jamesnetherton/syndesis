@@ -181,8 +181,9 @@ objects:
     - from:
         kind: DockerImage
         # Keep tag 'latest' here, its used as an anchor in the release script
-        name: docker.io/syndesis/syndesis-operator:latest
+        name: 192.168.1.245:5000/myproject/syndesis-operator
       importPolicy:
+        insecure: true
         scheduled: true
       # Keep 'latest' here (including single quotes), its used as a pattern anchor in the release script
       name: 'latest'
