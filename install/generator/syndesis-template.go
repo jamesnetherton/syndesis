@@ -42,6 +42,7 @@ type supportImages struct {
 	Prometheus       string
 	Grafana          string
 	PostgresExporter string
+	AlertManager     string
 }
 
 type syndesisImages struct {
@@ -61,6 +62,7 @@ type images struct {
 	PrometheusImagePrefix       string
 	GrafanaImagePrefix          string
 	PostgresExporterImagePrefix string
+	AlertManagerImagePrefix     string
 }
 
 type tags struct {
@@ -71,6 +73,7 @@ type tags struct {
 	Upgrade          string
 	Grafana          string
 	PostgresExporter string
+	AlertManager     string
 }
 
 type Context struct {
@@ -103,6 +106,7 @@ var syndesisContext = Context{
 			Prometheus:       "prometheus",
 			Grafana:          "grafana",
 			PostgresExporter: "postgres_exporter",
+			AlertManager:     "alertmanager",
 		},
 		Syndesis: syndesisImages{
 			Rest:     "syndesis-server",
@@ -118,6 +122,7 @@ var syndesisContext = Context{
 		Prometheus:       "v2.1.0",
 		Grafana:          "5.4.2",
 		PostgresExporter: "v0.4.7",
+		AlertManager:     "v0.16.0",
 	},
 }
 
@@ -136,6 +141,7 @@ var productContext = Context{
 			Prometheus:       "prometheus",
 			Grafana:          "grafana",
 			PostgresExporter: "postgres_exporter",
+			AlertManager:     "alertmanager",
 		},
 		Syndesis: syndesisImages{
 			Rest:     "fuse-ignite-server",
@@ -151,6 +157,7 @@ var productContext = Context{
 		Prometheus:       "v2.1.0",
 		Grafana:          "5.4.2",
 		PostgresExporter: "v0.4.7",
+		AlertManager:     "v0.16.0",
 	},
 	Registry: "registry.fuse-ignite.openshift.com",
 }

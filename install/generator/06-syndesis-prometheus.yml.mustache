@@ -140,6 +140,36 @@
             regex: context:(org_apache_camel_ExchangesTotal|org_apache_camel_ExchangesFailed|io_syndesis_camel_StartTimestamp|io_syndesis_camel_LastExchangeCompletedTimestamp|io_syndesis_camel_LastExchangeFailureTimestamp)
             action: keep
 
+      alerting:
+        alertmanagers:
+        - scheme: http
+          static_configs:
+          - targets:
+            - 'syndesis-alertmanager'
+
+      rule_files:
+      - "syndesis-infrastructure-alert-rules.yml"
+      - "syndesis-integration-alert-rules.yml"
+
+    syndesis-infrastructure-alert-rules.yml: |-
+        groups:
+          - name: camel-microservice-demo
+            rules:
+              - alert: PrefixServiceInstanceDown
+                expr: up{instance="name-prefix-service:9779"} == 0
+                for: 1m
+                annotations:
+                  summary: Prefix Service Down
+
+    syndesis-integration-alert-rules.yml: |-
+        groups:
+          - name: camel-microservice-demo
+            rules:
+              - alert: PrefixServiceInstanceDown
+                expr: up{instance="name-prefix-service:9779"} == 0
+                for: 1m
+                annotations:
+                  summary: Prefix Service Down
 - apiVersion: v1
   kind: Service
   metadata:

@@ -268,6 +268,23 @@ objects:
 - apiVersion: image.openshift.io/v1
   kind: ImageStream
   metadata:
+    name: alertmanager
+    labels:
+      app: syndesis
+      syndesis.io/app: syndesis
+      syndesis.io/type: infrastructure
+      syndesis.io/component: syndesis-alertmanager
+  spec:
+    tags:
+    - from:
+        kind: DockerImage
+        name: ${SYNDESIS_REGISTRY}/prom/alertmanager:v0.16.0
+      importPolicy:
+        scheduled: true
+      name: "v0.16.0"
+- apiVersion: image.openshift.io/v1
+  kind: ImageStream
+  metadata:
     name: grafana
     labels:
       app: syndesis
@@ -1568,6 +1585,144 @@ objects:
   - kind: ServiceAccount
     name: syndesis-prometheus
 - apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    labels:
+      app: syndesis
+      syndesis.io/app: syndesis
+      syndesis.io/type: infrastructure
+      syndesis.io/component: syndesis-alertmanager
+    name: syndesis-alertmanager-config
+  data:
+    config.yml: |-
+      global:
+        resolve_timeout: 5m
+      route:
+        group_by: ['job']
+        group_wait: 30s
+        group_interval: 1m
+        receiver: 'webhook'
+      receivers:
+        - name: 'webhook'
+          webhook_configs:
+            - url: 'http://alert-webhook-logger:9876/'
+- apiVersion: v1
+  kind: Service
+  metadata:
+    name: syndesis-alertmanager
+    labels:
+      app: syndesis
+      syndesis.io/app: syndesis
+      syndesis.io/type: infrastructure
+      syndesis.io/component: syndesis-alertmanager
+  spec:
+    ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 9093
+    selector:
+      app: syndesis
+      syndesis.io/app: syndesis
+      syndesis.io/component: syndesis-alertmanager
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    name: syndesis-alertmanager
+    labels:
+      app: syndesis
+      syndesis.io/app: syndesis
+      syndesis.io/type: infrastructure
+      syndesis.io/component: syndesis-alertmanager
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: ${PROMETHEUS_VOLUME_CAPACITY}
+- apiVersion: apps.openshift.io/v1
+  kind: DeploymentConfig
+  metadata:
+    name: syndesis-alertmanager
+    labels:
+      app: syndesis
+      syndesis.io/app: syndesis
+      syndesis.io/type: infrastructure
+      syndesis.io/component: syndesis-alertmanager
+  spec:
+    replicas: 1
+    selector:
+      app: syndesis
+      syndesis.io/app: syndesis
+      syndesis.io/component: syndesis-alertmanager
+    strategy:
+      type: Recreate
+      resources:
+        limits:
+          memory: "256Mi"
+        requests:
+          memory: "20Mi"
+    template:
+      metadata:
+        labels:
+          app: syndesis
+          syndesis.io/app: syndesis
+          syndesis.io/type: infrastructure
+          syndesis.io/component: syndesis-alertmanager
+      spec:
+        containers:
+        - name: alertmanager
+          image: ' '
+
+          imagePullPolicy: IfNotPresent
+          args:
+            - '--config.file=/etc/alertmanager/config.yml'
+            - '--storage.path=/etc/alertmanager/data'
+            - '--data.retention=168h'
+          livenessProbe:
+            httpGet:
+              port: 9093
+            initialDelaySeconds: 60
+          ports:
+          - containerPort: 9093
+          readinessProbe:
+            httpGet:
+              port: 9093
+            initialDelaySeconds: 30
+          # DB QoS class is "Guaranteed" (requests == limits)
+          # Note: On OSO there is no Guaranteed class, its always burstable
+          resources:
+            limits:
+              memory: ${PROMETHEUS_MEMORY_LIMIT}
+            requests:
+              memory: ${PROMETHEUS_MEMORY_LIMIT}
+          volumeMounts:
+          - name: syndesis-alertmanager-data
+            mountPath: /etc/alertmanager/data
+          - name: syndesis-alertmanager-config
+            mountPath: /etc/alertmanager
+        volumes:
+        - name: syndesis-alertmanager-data
+          persistentVolumeClaim:
+            claimName: syndesis-alertmanager
+        - name: syndesis-alertmanager-config
+          configMap:
+            name: syndesis-alertmanager-config
+    triggers:
+    - imageChangeParams:
+        automatic: true
+        containerNames:
+        - alertmanager
+        from:
+          kind: ImageStreamTag
+          name: alertmanager:v0.16.0
+          namespace: ${IMAGE_STREAM_NAMESPACE}
+      type: ImageChange
+
+    - type: ConfigChange
+- apiVersion: v1
   kind: ServiceAccount
   metadata:
     name: syndesis-prometheus
@@ -1629,16 +1784,28 @@ objects:
           - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
             action: keep
             regex: true
+          - source_labels: [__meta_kubernetes_pod_label_syndesis_io_component]
+            action: keep
+            regex: syndesis-db-metrics
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
           - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
             action: replace
             regex: ([^:]+)(?::\d+)?;(\d+)
             replacement: $1:$2
             target_label: __address__
-          - source_labels: [__meta_kubernetes_pod_label_syndesis_io_component]
-            action: keep
-            regex: syndesis-db
           - action: labelmap
             regex: __meta_kubernetes_pod_label_(.+)
+          - action: labelmap
+            regex: __meta_kubernetes_pod_annotation_(syndesis.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: kubernetes_pod_name
 
           metric_relabel_configs:
           - source_labels: [__name__]
@@ -1697,6 +1864,36 @@ objects:
             regex: context:(org_apache_camel_ExchangesTotal|org_apache_camel_ExchangesFailed|io_syndesis_camel_StartTimestamp|io_syndesis_camel_LastExchangeCompletedTimestamp|io_syndesis_camel_LastExchangeFailureTimestamp)
             action: keep
 
+      alerting:
+        alertmanagers:
+        - scheme: http
+          static_configs:
+          - targets:
+            - 'syndesis-alertmanager'
+
+      rule_files:
+      - "syndesis-infrastructure-alert-rules.yml"
+      - "syndesis-integration-alert-rules.yml"
+
+    syndesis-infrastructure-alert-rules.yml: |-
+        groups:
+          - name: camel-microservice-demo
+            rules:
+              - alert: PrefixServiceInstanceDown
+                expr: up{instance="name-prefix-service:9779"} == 0
+                for: 1m
+                annotations:
+                  summary: Prefix Service Down
+
+    syndesis-integration-alert-rules.yml: |-
+        groups:
+          - name: camel-microservice-demo
+            rules:
+              - alert: PrefixServiceInstanceDown
+                expr: up{instance="name-prefix-service:9779"} == 0
+                for: 1m
+                annotations:
+                  summary: Prefix Service Down
 - apiVersion: v1
   kind: Service
   metadata:

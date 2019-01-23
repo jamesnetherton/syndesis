@@ -88,6 +88,23 @@
 - apiVersion: image.openshift.io/v1
   kind: ImageStream
   metadata:
+    name: {{ Images.Support.AlertManager }}
+    labels:
+      app: syndesis
+      syndesis.io/app: syndesis
+      syndesis.io/type: infrastructure
+      syndesis.io/component: syndesis-alertmanager
+  spec:
+    tags:
+    - from:
+        kind: DockerImage
+        name: ${SYNDESIS_REGISTRY}/{{Images.PrometheusImagePrefix}}/{{ Images.Support.AlertManager }}:{{ Tags.AlertManager }}
+      importPolicy:
+        scheduled: true
+      name: "{{ Tags.AlertManager }}"
+- apiVersion: image.openshift.io/v1
+  kind: ImageStream
+  metadata:
     name: {{ Images.Support.Grafana }}
     labels:
       app: syndesis
