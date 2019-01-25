@@ -1869,23 +1869,62 @@ objects:
 
     syndesis-infrastructure-alert-rules.yml: |-
         groups:
-          - name: camel-microservice-demo
+          - name: syndesis-infrastructure
             rules:
-              - alert: PrefixServiceInstanceDown
-                expr: up{instance="name-prefix-service:9779"} == 0
+              - alert: SyndesisDBMetricsInstanceDown
+                expr: sum(up{job="syndesis-db-mtrics"}) by(kubernetes_namespace, kubernetes_pod_name, instance) == 0
                 for: 1m
+                labels:
+                  severity: high
                 annotations:
-                  summary: Prefix Service Down
-
+                  summary: syndesis-db-metrics pod is down
+              - alert: SyndesisDBInstanceDown
+                expr: sum(up{job="syndesis-db"}) by(kubernetes_namespace, kubernetes_pod_name, instance) == 0
+                for: 1m
+                labels:
+                  severity: high
+                annotations:
+                  summary: syndesis-db pod is down
+              - alert: SyndesisDBHighRollbackRate
+                expr: rate(pg_stat_database_xact_rollback[5m]) / ON(instance, kubernetes_pod_name, kubernetes_namespace, datname) rate(pg_stat_database_xact_commit[5m]) > 0.02
+                for: 1m
+                labels:
+                  severity: high
+                annotations:
+                  summary: syndesis-db database thingy has a high rate of transaction rollbacks
+              - alert: SyndesisDBHighConnectionCount
+                expr: sum(pg_stat_database_numbackends) BY (kubernetes_pod_name, instance, kubernetes_namespace) > ON(instance, kubernetes_pod_name) pg_settings_max_connections * 0.01
+                for: 1m
+                labels:
+                  severity: high
+                annotations:
+                  summary: syndesis-db database connections is close to maximum allowed thingy
+              - alert: SyndesisMetaInstanceDown
+                expr: sum(up{job="syndesis-meta"}) by(kubernetes_namespace, kubernetes_pod_name, instance) == 0
+                for: 1m
+                labels:
+                  severity: high
+                annotations:
+                  summary: syndesis-meta pod is down
+              - alert: SyndesisServerInstanceDown
+                expr: sum(up{job="syndesis-server"}) by(kubernetes_namespace, kubernetes_pod_name, instance) == 0
+                for: 1m
+                labels:
+                  severity: high
+                annotations:
+                  summary: syndesis-server pod is down
     syndesis-integration-alert-rules.yml: |-
         groups:
-          - name: camel-microservice-demo
+          - name: syndesis-infrastructure
             rules:
-              - alert: PrefixServiceInstanceDown
-                expr: up{instance="name-prefix-service:9779"} == 0
+              - alert: SyndesisIntegrationsDown
+                expr: sum(up{job="integration-pods"}) by(kubernetes_namespace, kubernetes_pod_name, instance) == 0
                 for: 1m
+                labels:
+                  severity: high
                 annotations:
-                  summary: Prefix Service Down
+                  summary: syndesis integrations pods are down
+
 - apiVersion: v1
   kind: Service
   metadata:
