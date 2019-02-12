@@ -1,0 +1,129 @@
+[id='monitoring-operator-installation']
+= Configuring Prometheus & Grafana to monitor {prodname} infrastructure
+
+Monitoring of {prodname} infrastructure is provided by Prometheus. Visualization of metrics collected by Prometheus is provided by Grafana. Both applications are installed by Kubernetes operators.
+
+The following guide explains how to set up and deploy the monitoring stack for {prodname}.
+
+== Installing the monitoring stack
+
+The simplest way of deploying Prometheus and Grafana is with the application monitoring operator.
+
+1) Create a new project namespace for the monitoring infrastructure:
+
+----
+oc new-project application-monitoring
+----
+
+2) Login to OpenShift with administrator permissions:
+
+----
+oc login -u system:admin
+----
+
+3) Apply a monitoring label to the namespace:
+
+----
+oc label namespace application-monitoring monitoring-key=middleware
+----
+
+4) Apply a monitoring label to the namespace where {prodname} is installed.
+
+----
+oc label namespace my-{prodname}-namespace monitoring-key=middleware
+----
+
+5) Apply Grafana custom resource definitions (CRDs):
+
+----
+oc create -f https://raw.githubusercontent.com/integr8ly/grafana-operator/0.0.1/deploy/crds/Grafana.yaml
+----
+
+----
+oc create -f https://raw.githubusercontent.com/integr8ly/grafana-operator/0.0.1/deploy/crds/GrafanaDashboard.yaml
+----
+
+6) Download and extract the application monitoring operator configuration:
+
+----
+curl -L https://github.com/integr8ly/application-monitoring-operator/archive/0.0.3.zip > application-monitor-operator.zip
+----
+
+----
+unzip application-monitor-operator.zip
+----
+
+
+7) Deploy application monitoring operator cluster role resources:
+
+----
+
+oc create -f ./application-monitoring-operator-0.0.3/deploy/roles \
+    -f ./application-monitoring-operator-0.0.3/deploy/operator_roles/ \
+    -f ./application-monitoring-operator-0.0.3/deploy/crds/ApplicationMonitoring.yaml \
+    -f ./application-monitoring-operator-0.0.3/deploy/operator.yaml
+----
+
+8) Deploy the application monitoring resource:
+
+----
+cat <<EOT | oc create -f -
+apiVersion: applicationmonitoring.integreatly.org/v1alpha1
+kind: ApplicationMonitoring
+metadata:
+  name: syndesis-applicationmonitoring
+EOT
+----
+
+== Installing the monitoring configuration
+
+If the {prodname} installer has not applied the monitoring configuration resources to the cluster, they can be installed manually as follows:
+
+----
+BASEURL=https://raw.githubusercontent.com/syndesisio/syndesis/master/install/addons
+
+for ADDON in syndesis-db-dashboard.yml \
+  syndesis-db-prometheus-rule.yml \
+  syndesis-db-servicemonitor.yml \
+  syndesis-jvm-dashboard.yml \
+  syndesis-meta-servicemonitor.yml \
+  syndesis-rest-api-dashboard.yml \
+  syndesis-rest-api-prometheus-rule.yml \
+  syndesis-server-servicemonitor.yml
+do
+  oc create -f ${BASEURL}/${ADDON}
+done
+----
+
+== Accessing Grafana dashboards
+
+To access Grafana, browse the list of routes in the OpenShift console for the project where the application monitoring operator is installed. There will be an entry named 'grafana-route', click the hostname URL to view the Grafana console.
+
+There are 3 infrastructure dashboards which can be accessed by clicking on the dashboard selector at the top of the screen.
+
+[%header,cols=2*]
+|===
+|Name
+|Description
+
+|Fuse Online - Infrastructure - DB
+|Displays metrics related to the {prodname} Postgres instance. By default metrics for all {prodname} databases are displayed. A specific database can be monitored by selecting one from the 'Database' drop down list at the top of the dashboard.
+
+|Fuse Online - Infrastructure - JVM
+|Displays metrics about the running JVM for the syndesis-meta or syndesis-server applications. The application to monitor can be chosen from the 'Application' drop down list at the top of the dashboard.
+
+|Fuse Online - Infrastructure - REST APIs
+|Displays metrics relating to the {prodname} infrastructure API endpoints such as request throughput and latency. The application to monitor can be chosen from the 'Application' drop down list at the top of the dashboard.
+|===
+
+== Accessing Prometheus
+
+To access Prometheus, browse the list of routes in the OpenShift console for the project where the application monitoring operator is installed. There will be an entry named 'prometheus-route', click the hostname URL to view the Prometheus console.
+
+Clicking the 'Alerts' menu item will list the alert rules configured for the {prodname} infrastructure components.
+
+== Accessing Alertmanager
+
+To access Prometheus Alertmanager, browse the list of routes in the OpenShift console for the project where the application monitoring operator is installed. There will be an entry named 'alertmanager-route', click the hostname URL to view the Alertmanager console.
+
+If the {prodname} infrastructure is healthy, the default view will be empty. If any of the infrastructure components become unhealthy, any active alerts that have been fired will be listed, together with the option to silence them.

@@ -1,0 +1,6 @@
+[id='monitoring-infrastructure-metrics']
+= Monitoring infrastructure metrics
+
+This chapter describes how to configure monitoring and alerting for {prodname}.
+
+include::monitoring_operator_installation.adoc[leveloffset=+1]

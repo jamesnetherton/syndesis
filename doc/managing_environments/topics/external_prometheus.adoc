@@ -1,5 +1,5 @@
 [id='external_prometheus']
-= Configuring an external Prometheus instance to monitor {prodname}
+= Configuring an external Prometheus instance to monitor {prodname} (without the Prometheus operator)
 
 When configuring an external Prometheus it’s best to use the {prodname}
 Prometheus configuration as a template. The default {prodname} Prometheus
