@@ -1,0 +1,343 @@
+[id='alerting-standard-operating-procedures']
+= Standard Operating Procedures
+
+== Syndesis Infrastructure - Database Alerts
+
+=== FuseOnlineDatabaseInstanceDown
+
+*Alert name*
+
+FuseOnlineDatabaseHighRollbackRate
+
+*Description*
+
+The syndesis-db pod is not running or is not serving requests.
+
+**Process steps**
+
+1) Log in to the OpenShift cluster.
+
+2) Switch to project namespace identified in the alert message.
+
+3) The alert message contains the name of the pod that triggered the alerting event. Use this pod name in the 'oc' client commands that follow.
+
+4) If the syndesis-db pod is still running, capture logs for analysis.
+
+[source,bash,options="nowrap"]
+----
+oc logs syndesis-db-1-7nwh9 > syndesis-db.log
+----
+
+5) Capture a snapshot of the 'Fuse Online - Infrastructure - DB' Grafana dashboard. The metrics can be useful for identifying errors and performance bottlenecks.
+
+6) Start or restart syndesis-db.
+
+=== FuseOnlineDatabaseHighRollbackRate
+
+*Alert name*
+
+FuseOnlineDatabaseHighRollbackRate
+
+*Description*
+
+A high volume of transaction rollbacks has been detected on one or more databases within the syndesis-db Postgres instance.
+
+**Process steps**
+
+1) Log in to cluster.
+
+2) Switch to project namespace identified in the alert message.
+
+3) The alert message contains the name of the pod that triggered the alerting event. Use this pod name in the 'oc' client commands that follow.
+
+4) If the syndesis-db pod is still running, capture logs for analysis.
+
+[source,bash,options="nowrap"]
+----
+oc logs syndesis-db-1-7nwh9 > syndesis-db.log
+----
+
+5) Capture a snapshot of the 'Fuse Online - Infrastructure - DB' Grafana dashboard. The metrics can be useful for identifying errors and performance bottlenecks.
+
+6) Connect to the syndesis-db pod.
+
+[source,bash,options="nowrap"]
+----
+oc rsh syndesis-db
+----
+
+7) Start a Postgres client session.
+
+[source,bash,options="nowrap"]
+----
+psql
+----
+
+7.1) Determine which pods are the source of the rollbacks. The name of the database that triggered the alert is mentioned within the alert message body. You should use this as the value for the 'WHERE datname=' clause within the query that follows below.
+
+[source,bash,options="nowrap"]
+----
+psql -c "SELECT client_addr, count(client_addr) as connection_count FROM pg_stat_activity WHERE datname = 'syndesis' GROUP BY client_addr ORDER BY connection_count DESC;"
+----
+
+7.2) With a list of IP address, it is possible to identify which pods are candidates for causing the high rollback rate.
+
+[source,bash,options="nowrap"]
+----
+oc get pods --field-selector status.podIP==172.17.0.9
+----
+
+With the pods identified, capture their logs for analysis. Consider restarting the application pods to restore good service.
+
+=== FuseOnlineDatabaseHighConnectionCount
+
+*Alert name*
+
+FuseOnlineDatabaseHighConnectionCount
+
+*Description*
+
+More than 90% of the maximum allowed database connections (default 100) on syndesis-db are in use.
+
+**Process steps**
+
+1) Log in to cluster.
+
+2) Switch to project namespace identified in the alert message.
+
+3) The alert message contains the name of the pod that triggered the alerting event. Use this pod name in the 'oc' client commands that follow.
+
+4) Connect to the syndesis-db pod.
+
+[source,bash,options="nowrap"]
+----
+oc rsh syndesis-db
+----
+
+5) Capture a snapshot of the 'Fuse Online - Infrastructure - DB' Grafana dashboard. The metrics can be useful for identifying errors and performance bottlenecks.
+
+6) List the number of open connections by pod IP.
+
+[source,bash,options="nowrap"]
+----
+psql -c 'SELECT client_addr, count(client_addr) as connection_count FROM pg_stat_activity WHERE client_addr IS NOT NULL GROUP BY client_addr ORDER BY connection_count DESC;'
+----
+
+Using the IP address, it is possible to identify which pods are taking up connections.
+
+[source,bash,options="nowrap"]
+----
+oc get pods --field-selector status.podIP==172.17.0.9
+----
+
+With the pods identified, capture their logs for analysis. Consider restarting the application pod or syndesis-db pod.
+
+== Syndesis Infrastructure - JVM Alerts
+
+*Alert name*
+
+FuseOnlineInfrastructureJvmHeapThresholdExceeded
+
+*Description*
+
+Fires when JVM heap space is >= 90% used.
+
+**Process steps**
+
+1) Log in to cluster
+
+2) Switch to project namespace identified in the alert message.
+
+3) The alert message contains the name of the pod that triggered the alerting event. Use this pod name in the 'oc' client commands that follow.
+
+4) Perform a heap dump and capture application logs for analysis.
+
+[source,bash,options="nowrap"]
+----
+oc exec syndesis-server-9-kxt2g -- jcmd 1 GC.heap_dump /tmp/heapdump.hprof
+oc rsync syndesis-server-9-kxt2g:/tmp/heapdump.hprof .
+oc exec syndesis-server-9-kxt2g -- rm -f /tmp/heapdump.hprof
+
+oc exec syndesis-server-9-kxt2g -- jcmd 1 GC.class_histogram > class_histogram.log
+oc exec syndesis-server-9-kxt2g -- jstat -gcutil 1 > gcstats.log
+oc logs syndesis-server-9-kxt2g > syndesis-server.log
+----
+
+5) Capture a snapshot of the 'Fuse Online - Infrastructure - JVMs' Grafana dashboard. The metrics can be useful for identifying errors and performance bottlenecks.
+
+6) If necessary, recreate the pod to restore service.
+
+=== FuseOnlineInfrastructureJvmNonHeapThresholdExceeded
+
+*Alert name*
+
+FuseOnlineInfrastructureJvmNonHeapThresholdExceeded
+
+*Description*
+
+Fires when JVM non-heap space is >= 90% used.
+
+**Process steps**
+
+1) Log in to cluster.
+
+2) Switch to project namespace identified in the alert message.
+
+3) The alert message contains the name of the pod that triggered the alerting event. Use this pod name in the 'oc' client commands that follow.
+
+[source,bash,options="nowrap"]
+----
+oc get pod -l syndesis.io/component=syndesis-server
+----
+
+4) Perform a heap dump and capture application logs for analysis.
+
+[source,bash,options="nowrap"]
+----
+oc exec syndesis-server-9-kxt2g -- jcmd 1 GC.heap_dump /tmp/heapdump.hprof
+oc rsync syndesis-server-9-kxt2g:/tmp/heapdump.hprof .
+oc exec syndesis-server-9-kxt2g -- rm -f /tmp/heapdump.hprof
+
+oc exec syndesis-server-9-kxt2g -- jcmd 1 GC.class_histogram > class_histogram.log
+oc exec syndesis-server-9-kxt2g -- jstat -gcutil 1 > gcstats.log
+oc logs syndesis-server-9-kxt2g > syndesis-server.log
+----
+
+5) Capture a snapshot of the 'Fuse Online - Infrastructure - JVMs' Grafana dashboard. The metrics can be useful for identifying errors and performance bottlenecks.
+
+6) Consider restarting the pod if service becomes degraded.
+
+If the alert continues to fire after further pod restarts, a deeper insight into non-heap memory can be obtained by enabling native memory tracking. This can be activated by editing the syndesis-meta or syndesis-server DeploymentConfig and adding an environment variable to the container spec for `JAVA_DIAGNOSTICS=true`. Note that enabling JVM diagnostics results in a 5-10 percent performance drop, so should only be used when absolutely necessary.
+
+With diagnostics enabled, a summary of native memory usage can be obtained as follows.
+
+[source,bash,options="nowrap"]
+----
+oc exec syndesis-server-9-kxt2g -- jcmd 1 VM.native_memory > native_memory.log
+----
+
+=== FuseOnlineInfrastructureJvmDeadlockedThreads
+
+*Alert name*
+
+FuseOnlineInfrastructureJvmDeadlockedThreads
+
+*Description*
+
+Fires when 1 or more JVM threads are in the 'blocked' state.
+
+**Process steps**
+
+1) Log in to cluster.
+
+2) Switch to project namespace identified in the alert message.
+
+3) The alert message contains the name of the pod that triggered the alerting event. Use this pod name in the 'oc' client commands that follow.
+
+[source,bash,options="nowrap"]
+----
+oc get pod -l syndesis.io/component=syndesis-server
+----
+
+4) Perform a thread dump and capture application logs for analysis.
+
+[source,bash,options="nowrap"]
+----
+oc exec syndesis-server-9-kxt2g -- jstack -l 1 > threaddump.log
+oc logs syndesis-server-9-kxt2g > syndesis-server.log
+----
+
+5) Capture a snapshot of the 'Fuse Online - Infrastructure - JVMs' Grafana dashboard. The metrics can be useful for identifying errors and performance bottlenecks.
+
+6) If necessary, recreate the syndesis-server pod to restore service.
+
+[source,bash,options="nowrap"]
+----
+oc delete pod syndesis-server-9-kxt2g
+----
+
+== Syndesis Infrastructure - REST API Alerts
+
+=== FuseOnlineRestApiHighEndpointErrorRate
+
+*Alert name*
+
+FuseOnlineRestApiHighEndpointErrorRate
+
+*Description*
+
+Fires when a REST API endpoint has a high rate of HTTP 5XX responses.
+
+**Process steps**
+
+1) Log in to cluster.
+
+2) Switch to project namespace identified in the alert message.
+
+3) The alert message contains the name of the pod that triggered the alerting event. Use this pod name in the 'oc' client commands that follow.
+
+[source,bash,options="nowrap"]
+----
+oc get pod -l syndesis.io/component=syndesis-server
+----
+
+4) Capture application logs for analysis.
+
+[source,bash,options="nowrap"]
+----
+oc logs syndesis-server-9-kxt2g > syndesis-server.log
+----
+
+5) Capture a snapshot of the 'Fuse Online - Infrastructure - REST APIs' Grafana dashboard. The metrics can be useful for identifying errors and performance bottlenecks.
+
+6) If necessary, recreate the syndesis-server pod to restore service.
+
+[source,bash,options="nowrap"]
+----
+oc delete pod syndesis-server-9-kxt2g
+----
+
+=== FuseOnlineRestApiHighEndpointLatency
+
+*Alert name*
+
+FuseOnlineRestApiHighEndpointLatency
+
+*Description*
+
+Fires when a REST API endpoint is experiencing high request latency of > 1 second responses.
+
+**Process steps**
+
+1) Log in to cluster.
+
+2) Switch to project namespace identified in the alert message.
+
+3) The alert message contains the name of the pod that triggered the alerting event. Use this pod name in the 'oc' client commands that follow.
+
+[source,bash,options="nowrap"]
+----
+oc get pod -l syndesis.io/component=syndesis-server
+----
+
+4) Perform a heap dump and capture application logs for analysis.
+
+[source,bash,options="nowrap"]
+----
+oc exec syndesis-server-9-kxt2g -- jcmd 1 GC.heap_dump /tmp/heapdump.hprof
+oc rsync syndesis-server-9-kxt2g:/tmp/heapdump.hprof .
+oc exec syndesis-server-9-kxt2g -- rm -f /tmp/heapdump.hprof
+
+oc exec syndesis-server-9-kxt2g -- jcmd 1 GC.class_histogram > class_histogram.log
+oc exec syndesis-server-9-kxt2g -- jstat -gcutil 1 > gcstats.log
+oc logs syndesis-server-9-kxt2g > syndesis-server.log
+----
+
+5) Capture a snapshot of the 'Fuse Online - Infrastructure - REST APIs' Grafana dashboard. The metrics can be useful for identifying errors and performance bottlenecks.
+
+6) If necessary, recreate the syndesis-server pod to restore service.
+
+[source,bash,options="nowrap"]
+----
+oc delete pod syndesis-server-9-kxt2g
+----
