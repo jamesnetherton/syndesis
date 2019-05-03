@@ -1,0 +1,623 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  name: syndesis-monitoring
+  labels:
+    app: syndesis
+    syndesis.io/app: syndesis
+    syndesis.io/type: infrastructure
+    syndesis.io/component: syndesis-monitoring
+  annotations:
+    openshift.io/display-name: "Fuse Online monitoring stack installation"
+    openshift.io/provider-display-name: "Red Hat, Inc."
+    description: "Installs Prometheus and Grafana to monitor Fuse Online"
+    tags: "fuse-online,syndesis,monitoring"
+    iconClass: "icon-rh-integration"
+    version: "1.0"
+message: |-
+  Fuse Online monitoring stack has been installed to ${MONITORING_NAMESPACE}
+parameters:
+- name: MONITORING_NAMESPACE
+  displayName: Monitoring Namespace
+  value: application-monitoring
+  required: true
+  description: Namespace in which the monitoring stack is to be installed.
+- name: FUSE_ONLINE_NAMESPACE
+  displayName: Fuse Online Namespace
+  value: application-monitoring
+  required: true
+  description: Namespace in which the Fuse Online instance to monitor is installed.
+objects:
+# Roles
+- apiVersion: rbac.authorization.k8s.io/v1beta1
+  kind: ClusterRole
+  metadata:
+    name: prometheus-application-monitoring
+    labels:
+      app: syndesis
+      syndesis.io/app: syndesis
+      syndesis.io/type: infrastructure
+      syndesis.io/component: syndesis-monitoring
+  rules:
+  - apiGroups:
+    - authentication.k8s.io
+    resources:
+    - tokenreviews
+    verbs:
+    - create
+  - apiGroups:
+    - authorization.k8s.io
+    resources:
+    - subjectaccessreviews
+    verbs:
+    - create
+  - apiGroups: [""]
+    resources:
+    - nodes
+    - services
+    - endpoints
+    - pods
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources:
+    - configmaps
+    verbs: ["get"]
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
+
+- apiVersion: rbac.authorization.k8s.io/v1beta1
+  kind: ClusterRoleBinding
+  metadata:
+    name: prometheus-application-monitoring
+  roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: ClusterRole
+    name: prometheus-application-monitoring
+  subjects:
+  - kind: ServiceAccount
+    name: prometheus-application-monitoring
+    namespace: application-monitoring
+  userNames:
+  - system:serviceaccount:application-monitoring:prometheus-application-monitoring
+
+- apiVersion: rbac.authorization.k8s.io/v1
+  kind: ClusterRole
+  metadata:
+    name: prometheus-application-monitoring-operator
+    labels:
+      app: syndesis
+      syndesis.io/app: syndesis
+      syndesis.io/type: infrastructure
+      syndesis.io/component: syndesis-monitoring
+  rules:
+  - apiGroups:
+    - apiextensions.k8s.io
+    resources:
+    - customresourcedefinitions
+    verbs:
+    - '*'
+  - apiGroups:
+    - monitoring.coreos.com
+    resources:
+    - alertmanagers
+    - prometheuses
+    - prometheuses/finalizers
+    - alertmanagers/finalizers
+    - servicemonitors
+    - prometheusrules
+    verbs:
+    - '*'
+  - apiGroups:
+    - apps
+    resources:
+    - statefulsets
+    verbs:
+    - '*'
+  - apiGroups:
+    - ""
+    resources:
+    - configmaps
+    - secrets
+    verbs:
+    - '*'
+  - apiGroups:
+    - ""
+    resources:
+    - pods
+    verbs:
+    - list
+    - delete
+  - apiGroups:
+    - ""
+    resources:
+    - services
+    - endpoints
+    - services/finalizers
+    verbs:
+    - "*"
+  - apiGroups:
+    - ""
+    resources:
+    - nodes
+    verbs:
+    - list
+    - watch
+  - apiGroups:
+    - ""
+    resources:
+    - namespaces
+    verbs:
+    - get
+    - list
+    - watch
+
+
+- apiVersion: rbac.authorization.k8s.io/v1
+  kind: ClusterRoleBinding
+  metadata:
+    name: prometheus-application-monitoring-operator
+    labels:
+      app: syndesis
+      syndesis.io/app: syndesis
+      syndesis.io/type: infrastructure
+      syndesis.io/component: syndesis-monitoring
+  roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: ClusterRole
+    name: prometheus-application-monitoring-operator
+  subjects:
+  - kind: ServiceAccount
+    name: prometheus-operator
+    namespace: application-monitoring
+  userNames:
+  - system:serviceaccount:application-monitoring:prometheus-operator
+
+# Prometheus
+- apiVersion: v1
+  kind: ServiceAccount
+  metadata:
+    name: prometheus-operator
+    namespace: ${MONITORING_NAMESPACE}
+    labels:
+      app: syndesis
+      syndesis.io/app: syndesis
+      syndesis.io/type: infrastructure
+      syndesis.io/component: syndesis-monitoring
+
+- apiVersion: apps/v1beta2
+  kind: Deployment
+  metadata:
+    labels:
+      k8s-app: prometheus-application-operator
+      app: syndesis
+      syndesis.io/app: syndesis
+      syndesis.io/type: infrastructure
+      syndesis.io/component: syndesis-monitoring
+    name: prometheus-operator
+    namespace: ${MONITORING_NAMESPACE}
+  spec:
+    replicas: 1
+    selector:
+      matchLabels:
+        k8s-app: prometheus-application-operator
+    template:
+      metadata:
+        labels:
+          k8s-app: prometheus-application-operator
+      spec:
+        containers:
+          - args:
+              - --kubelet-service=kube-system/kubelet
+              - --logtostderr=true
+              - --config-reloader-image=quay.io/coreos/configmap-reload:v0.0.1
+              - --prometheus-config-reloader=quay.io/coreos/prometheus-config-reloader:v0.26.0
+              - --namespaces=
+            image: quay.io/coreos/prometheus-operator:v0.26.0
+            name: prometheus-application-operator
+            ports:
+              - containerPort: 8080
+                name: http
+            resources:
+              limits:
+                cpu: 200m
+                memory: 200Mi
+              requests:
+                cpu: 100m
+                memory: 100Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+        nodeSelector:
+          beta.kubernetes.io/os: linux
+        securityContext: {}
+        serviceAccountName: prometheus-operator
+
+- apiVersion: route.openshift.io/v1
+  kind: Route
+  metadata:
+    name: prometheus-route
+    namespace: ${MONITORING_NAMESPACE}
+    labels:
+      app: syndesis
+      syndesis.io/app: syndesis
+      syndesis.io/type: infrastructure
+      syndesis.io/component: syndesis-monitoring
+  spec:
+    port:
+      targetPort: web
+    tls:
+      termination: edge
+    to:
+      kind: Service
+      name: prometheus
+    wildcardPolicy: None
+
+- apiVersion: v1
+  kind: ServiceAccount
+  metadata:
+    name: prometheus-application-monitoring
+    namespace: ${MONITORING_NAMESPACE}
+    labels:
+      app: syndesis
+      syndesis.io/app: syndesis
+      syndesis.io/type: infrastructure
+      syndesis.io/component: syndesis-monitoring
+
+- apiVersion: v1
+  kind: Service
+  metadata:
+    name: prometheus
+    namespace: ${MONITORING_NAMESPACE}
+    labels:
+      application-monitoring: "true"
+      app: syndesis
+      syndesis.io/app: syndesis
+      syndesis.io/type: infrastructure
+      syndesis.io/component: syndesis-monitoring
+  spec:
+    type: ClusterIP
+    ports:
+      - name: web
+        port: 9090
+        protocol: TCP
+        targetPort: web
+    selector:
+      app: prometheus
+    sessionAffinity: None
+
+- apiVersion: monitoring.coreos.com/v1
+  kind: Prometheus
+  metadata:
+    name: prometheus
+    namespace: ${MONITORING_NAMESPACE}
+    labels:
+      prometheus: prometheus
+      app: syndesis
+      syndesis.io/app: syndesis
+      syndesis.io/type: infrastructure
+      syndesis.io/component: syndesis-monitoring
+  spec:
+    alerting:
+      alertmanagers:
+        - name: alertmanager
+          namespace: ${MONITORING_NAMESPACE}
+          port: web
+    resources:
+      requests:
+        memory: 400Mi
+    serviceAccountName: prometheus-application-monitoring
+    serviceMonitorNamespaceSelector:
+    # TODO: Make this configurable - maybe addons should be part of this template
+      matchLabels:
+        monitoring-key: middleware
+    serviceMonitorSelector:
+      matchLabels:
+        monitoring-key: middleware
+    ruleSelector:
+      matchLabels:
+        monitoring-key: middleware
+    ruleNamespaceSelector:
+      matchLabels:
+        monitoring-key: middleware
+
+{{#ServiceMonitors}}
+- {{{Content}}}
+{{/ServiceMonitors}}
+
+# Alertmanager
+- apiVersion: v1
+  kind: ServiceAccount
+  metadata:
+    name: alertmanager
+    namespace: ${MONITORING_NAMESPACE}
+    labels:
+      app: syndesis
+      syndesis.io/app: syndesis
+      syndesis.io/type: infrastructure
+      syndesis.io/component: syndesis-monitoring
+
+- apiVersion: v1
+  stringData:
+    alertmanager.yaml: |
+      global:
+        resolve_timeout: 5m
+      route:
+        group_wait: 10s
+        group_interval: 30s
+        repeat_interval: 12h
+        receiver: default
+        routes:
+        - match:
+            alertname: DeadMansSwitch
+          repeat_interval: 5m
+          receiver: deadmansswitch
+      receivers:
+      - name: default
+      - name: deadmansswitch
+      inhibit_rules:
+      - source_match:
+          alertname: 'JobRunningTimeExceeded'
+          severity: 'critical'
+        target_match:
+          alertname: 'JobRunningTimeExceeded'
+          severity: 'warning'
+        equal: ['alertname', 'job', 'label_cronjob_name']
+  kind: Secret
+  metadata:
+    name: alertmanager-alertmanager
+    namespace: ${MONITORING_NAMESPACE}
+    type: Opaque
+    labels:
+      app: syndesis
+      syndesis.io/app: syndesis
+      syndesis.io/type: infrastructure
+      syndesis.io/component: syndesis-monitoring
+
+- apiVersion: v1
+  kind: Service
+  metadata:
+    name: alertmanager
+    namespace: ${MONITORING_NAMESPACE}
+    labels:
+      app: syndesis
+      syndesis.io/app: syndesis
+      syndesis.io/type: infrastructure
+      syndesis.io/component: syndesis-monitoring
+  spec:
+    ports:
+      - name: web
+        port: 6783
+        protocol: TCP
+        targetPort: web
+    selector:
+      alertmanager: alertmanager
+      app: alertmanager
+    sessionAffinity: None
+    type: ClusterIP
+
+- apiVersion: route.openshift.io/v1
+  kind: Route
+  metadata:
+    name: alertmanager-route
+    namespace: ${MONITORING_NAMESPACE}
+    labels:
+      app: syndesis
+      syndesis.io/app: syndesis
+      syndesis.io/type: infrastructure
+      syndesis.io/component: syndesis-monitoring
+  spec:
+    port:
+      targetPort: web
+    tls:
+      termination: edge
+    to:
+      kind: Service
+      name: alertmanager
+    wildcardPolicy: None
+
+- apiVersion: monitoring.coreos.com/v1
+  kind: Alertmanager
+  metadata:
+    name: alertmanager
+    namespace: ${MONITORING_NAMESPACE}
+    labels:
+      app: syndesis
+      syndesis.io/app: syndesis
+      syndesis.io/type: infrastructure
+      syndesis.io/component: syndesis-monitoring
+  spec:
+    listenLocal: false
+    serviceAccountName: alertmanager
+
+{{#PrometheusRules}}
+- {{{Content}}}
+{{/PrometheusRules}}
+
+# Grafana
+- apiVersion: image.openshift.io/v1
+  kind: ImageStream
+  metadata:
+    name: grafana
+    namespace: ${MONITORING_NAMESPACE}
+    labels:
+      app: syndesis
+      syndesis.io/app: syndesis
+      syndesis.io/type: infrastructure
+      syndesis.io/component: syndesis-monitoring
+  spec:
+    tags:
+    - from:
+        kind: DockerImage
+        name: grafana/grafana:latest
+      importPolicy:
+        scheduled: true
+      name: "latest"
+
+- apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    name: syndesis-grafana-datasource-config
+    namespace: ${MONITORING_NAMESPACE}
+    labels:
+      app: syndesis
+      syndesis.io/app: syndesis
+      syndesis.io/type: infrastructure
+      syndesis.io/component: syndesis-monitoring
+  data:
+    prometheus.yml: |
+      apiVersion: 1
+      datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        orgId: 1
+        url: http://prometheus:9090
+        version: 1
+        isDefault: true
+        editable: false
+
+- apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    name: syndesis-grafana-dashboard-config
+    namespace: ${MONITORING_NAMESPACE}
+    labels:
+      app: syndesis
+      syndesis.io/app: syndesis
+      syndesis.io/type: infrastructure
+      syndesis.io/component: syndesis-monitoring
+  data:
+    dashboard-config.yml: |
+        apiVersion: 1
+        providers:
+        - name: 'syndesis'
+          orgId: 1
+          folder: ''
+          type: file
+          updateIntervalSeconds: 30
+          disableDeletion: true
+          editable: true
+          options:
+            path: /etc/grafana/provisioning/dashboards
+{{#Dashboards}}
+    {{FileName}}: |
+{{{Content}}}
+{{/Dashboards}}
+
+- apiVersion: v1
+  kind: Service
+  metadata:
+    labels:
+      app: syndesis
+      syndesis.io/app: syndesis
+      syndesis.io/type: infrastructure
+      syndesis.io/component: syndesis-monitoring
+    name: syndesis-grafana
+    namespace: ${MONITORING_NAMESPACE}
+  spec:
+    ports:
+    - name: grafana
+      port: 80
+      protocol: TCP
+      targetPort: 3000
+    selector:
+      app: syndesis
+      syndesis.io/app: syndesis
+      syndesis.io/component: syndesis-grafana
+  status:
+    loadBalancer: {}
+
+- apiVersion: v1
+  kind: Route
+  metadata:
+    name: syndesis-grafana
+    namespace: ${MONITORING_NAMESPACE}
+    labels:
+      app: syndesis
+      syndesis.io/app: syndesis
+      syndesis.io/type: infrastructure
+      syndesis.io/component: syndesis-monitoring
+  spec:
+    to:
+      name: syndesis-grafana
+
+- apiVersion: v1
+  kind: DeploymentConfig
+  metadata:
+    name: syndesis-grafana
+    namespace: ${MONITORING_NAMESPACE}
+    labels:
+      app: syndesis
+      syndesis.io/app: syndesis
+      syndesis.io/type: infrastructure
+      syndesis.io/component: syndesis-monitoring
+  spec:
+    replicas: 1
+    selector:
+      app: syndesis
+      syndesis.io/app: syndesis
+      syndesis.io/component: syndesis-grafana
+    strategy:
+      type: Recreate
+      resources:
+        limits:
+          memory: "256Mi"
+        requests:
+          memory: "20Mi"
+    template:
+      metadata:
+        labels:
+          app: syndesis
+          syndesis.io/app: syndesis
+          syndesis.io/type: infrastructure
+          syndesis.io/component: syndesis-grafana
+      spec:
+        containers:
+        - name: grafana
+          imagePullPolicy: IfNotPresent
+          image: grafana:latest
+          env:
+          - name: GF_AUTH_ANONYMOUS_ENABLED
+            value: 'true'
+          - name: GF_AUTH_BASIC_ENABLED
+            value: 'false'
+          - name: GF_AUTH_PROXY_ENABLED
+            value: 'false'
+          - name: GF_AUTH_DISABLE_LOGIN_FORM
+            value: 'true'
+          - name: GF_USERS_ALLOW_SIGN_UP
+            value: 'false'
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              port: 3000
+            initialDelaySeconds: 180
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              port: 3000
+            initialDelaySeconds: 10
+          volumeMounts:
+          - mountPath: /etc/grafana/provisioning/datasources
+            name: syndesis-grafana-datasource
+          - mountPath: /etc/grafana/provisioning/dashboards
+            name: syndesis-grafana-dashboard
+        restartPolicy: Always
+        volumes:
+        - name: syndesis-grafana-datasource
+          configMap:
+            name: syndesis-grafana-datasource-config
+        - name: syndesis-grafana-dashboard
+          configMap:
+            name: syndesis-grafana-dashboard-config
+    triggers:
+    - imageChangeParams:
+        automatic: true
+        containerNames:
+        - grafana
+        from:
+          kind: ImageStreamTag
+          name: grafana:latest
+          namespace: ${MONITORING_NAMESPACE}
+      type: ImageChange
+    - type: ConfigChange

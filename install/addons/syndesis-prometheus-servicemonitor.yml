@@ -1,0 +1,23 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    app: syndesis
+    syndesis.io/app: syndesis
+    syndesis.io/component: syndesis-prometheus
+    syndesis.io/type: infrastructure
+    monitoring-key: middleware
+    application-monitoring: "true"
+  name: syndesis-prometheus
+spec:
+  endpoints:
+    - honorLabels: true
+      interval: 30s
+      path: /federate
+      params:
+        'match[]':
+        - '{job="integration-pods"}'
+      port: prometheus
+  selector:
+    matchLabels:
+      syndesis.io/component: syndesis-prometheus
